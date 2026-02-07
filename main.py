@@ -5,14 +5,24 @@ from aiogram import Bot, Dispatcher, types, Router
 from aiogram.filters import CommandStart
 from openai import OpenAI
 
-# --- ПОЛУЧЕНИЕ ТОКЕНОВ ИЗ ПЕРЕМЕННЫХ RAILWAY ---
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Инициализация ИИ через OpenRouter
+# --- ГИБКОЕ ПОЛУЧЕНИЕ ТОКЕНОВ ---
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+# Пробуем оба варианта имени ключа для надежности
+AI_KEY = os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENAI_API_KEY')
+
+if not TELEGRAM_TOKEN:
+    logger.error("❌ TELEGRAM_TOKEN не найден в переменных Railway!")
+if not AI_KEY:
+    logger.error("❌ API-ключ ИИ (OPENROUTER_API_KEY/OPENAI_API_KEY) не найден!")
+
+# Инициализация ИИ
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
+    api_key=AI_KEY,
 )
 
 bot = Bot(token=TELEGRAM_TOKEN)
@@ -28,52 +38,44 @@ def get_core_code(date_str):
         res = sum(int(d) for d in str(res))
     return res
 
-# Запрос к нейросети Gemini
+# Запрос к нейросети
 async def get_ai_interpretation(prompt):
     try:
         completion = client.chat.completions.create(
             model="google/gemini-2.0-flash-exp:free",
             messages=[
-                {"role": "system", "content": "Ты — Matrix Debugger. Ты анализируешь жизнь как программный код. Твой стиль: киберпанк, технический сленг, ирония. Обращайся к пользователю 'Unit'."},
+                {"role": "system", "content": "Ты — Matrix Debugger. Анализируй жизнь как код. Стиль: киберпанк, ирония."},
                 {"role": "user", "content": prompt}
             ]
         )
         return completion.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Системный сбой ИИ: {str(e)}"
+        logger.error(f"Ошибка ИИ: {e}")
+        return "⚠️ Системный сбой: ИИ временно недоступен. Проверь баланс или ключи."
 
-# Обработка команды /start
 @router.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "📟 **[SYSTEM]: Вход в протокол REAL-OS выполнен.**\n"
-        "-------------------------------------\n"
-        "Обнаружена новая био-система. Введи дату рождения (ДД.ММ.ГГГГ) для калибровки:"
-    )
+    await message.answer("📟 **[SYSTEM]: Связь установлена.**\nВведи дату рождения (ДД.ММ.ГГГГ):")
 
-# Обработка даты рождения
 @router.message()
 async def main_handler(message: types.Message):
     code = get_core_code(message.text)
     if code:
         await message.answer("📡 *Считываю частоту ядра...*")
-        prompt = f"Пользователь с кодом судьбы {code} и датой рождения {message.text}. Дай краткий и умный киберпанк-прогноз. Используй термины: баги, патч, апгрейд."
+        prompt = f"Код судьбы {code}, дата {message.text}. Дай краткий киберпанк-прогноз."
         ai_res = await get_ai_interpretation(prompt)
-        
-        response = (
-            f"✅ **ID ВАЛИДЕН: CORE TYPE {code}**\n"
-            f"-------------------------------------\n"
-            f"{ai_res}"
-        )
-        await message.answer(response, parse_mode="Markdown")
+        await message.answer(f"✅ **CORE TYPE {code}**\n\n{ai_res}", parse_mode="Markdown")
     else:
-        await message.answer("❌ [ERROR]: Введите дату цифрами (например, 15.05.1995)")
+        await message.answer("❌ Введи дату цифрами.")
 
 async def main():
     dp.include_router(router)
-    logging.basicConfig(level=logging.INFO)
-    print("[SYSTEM]: Matrix Bot запущен в облаке Railway...")
+    print("[SYSTEM]: Бот запущен и готов к работе!")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.critical(f"Критическая ошибка запуска: {e}")
+
